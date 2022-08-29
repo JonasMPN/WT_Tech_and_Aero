@@ -10,6 +10,14 @@ class Test:
     def task_one(self, param1, param2, param3):
         return param1+param2+param3
 
+    def task_two(self, param1: int, param2: int):
+        """
+        this functions multiplies two int numbers
+        :param param1:
+        :param param2:
+        :return:
+        """
+        return param1 * param2
     def task_four(self, param: int):
         """
         This function is going to do blablabla
