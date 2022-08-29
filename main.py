@@ -26,6 +26,9 @@ class Test:
         """
         return [param, param, param]
 
+    def thisismynewfunction(self, adsd,asd):
+        return None
+
 my_dictionary = {"eugenio": "italian", "nils": "german"}
 print(my_dictionary["eugenio"])
 names = ["wt1", "wt2", "wt3"]
