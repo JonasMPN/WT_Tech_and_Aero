@@ -1,9 +1,10 @@
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import brentq as root
 
 class BEM():
     def __init__(self):
-        self.last_axial_induction_factor = 0.5
+        self.last_axial_induction_factor = 0
 
         self.v0 = None
         self.omega = None
@@ -48,16 +49,15 @@ class BEM():
 
     def _axial_induction_factor(self, phi: float, local_solidity: float, c_normal: float, tip_loss_correction: float) \
             -> float:
-        print(self.last_axial_induction_factor)
-        if self.last_axial_induction_factor <= 0.33:
+        if self.last_axial_induction_factor <= 1/3:
             self.last_axial_induction_factor = 1/((4*tip_loss_correction*np.sin(phi)**2)/(local_solidity*c_normal)+1)
         else:
             def to_solve(a):
                 return local_solidity*((1-a)/np.sin(phi))**2*c_normal-4*a*tip_loss_correction*(1-a/4*(5-3*a))
-            self.last_axial_induction_factor = root(to_solve, 0, 2)
+            self.last_axial_induction_factor = root(to_solve, 0, 1)
         return self.last_axial_induction_factor
 
-    def _root_phi(self, r: float, chord: float, c_lift: float, c_drag: float, bracket=(-1,np.pi/2)) -> tuple:
+    def _root_phi(self, r: float, chord: float, c_lift: float, c_drag: float, bracket=(-0.1,np.pi/2)) -> tuple:
         def residue(phi):
             c_normal = self._c_normal(phi, c_lift, c_drag)
             c_tangent = self._c_tangent(phi,  c_lift, c_drag)
@@ -68,7 +68,7 @@ class BEM():
             return np.sin(phi)/(1-axial_induction_factor)-self.v0*np.cos(phi)/(self.omega*r*(1+tangential_induction_factor))
         return root(residue, bracket[0], bracket[1])
 
-    def _reset_values(self, axial_induction_factor: float=0.5, tangential_induction_factor: float=0.5):
+    def _reset_values(self, axial_induction_factor: float=0):
         self.last_axial_induction_factor = axial_induction_factor
 
     @staticmethod
