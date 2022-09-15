@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import brentq as root
 
@@ -40,11 +39,12 @@ class BEM():
         normal_force = 0.5*self.air_density*relative_flow**2*chord*c_normal
         tangential_force = 0.5*self.air_density*relative_flow**2*chord*c_tangent
         return {
-            "tip_loss_correction": tip_loss_correction,
+            "phi": phi,
             "axial_if": axial_if,
             "tangential_if": tangential_if,
             "normal_force": normal_force,
-            "tangential_force": tangential_force
+            "tangential_force": tangential_force,
+            "tip_loss_correction": tip_loss_correction,
         }
 
     def _axial_induction_factor(self, phi: float, local_solidity: float, c_normal: float, tip_loss_correction: float) \
