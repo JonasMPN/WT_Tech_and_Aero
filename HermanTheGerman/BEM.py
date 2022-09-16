@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.optimize import brentq as root
 
+
 class BEM():
     def __init__(self):
         self.last_axial_induction_factor = 0
@@ -13,20 +14,21 @@ class BEM():
         self.twist = None
         self.pitch = None
 
-    def set_constants(self, v0: float, omega: float, rotor_radius: float, n_blades: int, air_density: float) -> None:
-        self.v0, self.omega, self.rotor_radius, self.n_blades = v0, omega, rotor_radius, n_blades
-        self.air_density = air_density
+    def set_constants(self,
+                      v0: float,
+                      omega: float,
+                      rotor_radius: float,
+                      n_blades: int,
+                      air_density: float) -> None:
+        self._set(**{param: value for param, value in locals().items() if param != "self"})
         return None
 
-    def solve(self, radius, chord, c_lift, c_drag) -> dict:
-        # if not all([self.v0, self.omega, self.rotor_radius, self.n_blades, self.air_density, self.twist, self.pitch]):
-        #     print(f"\033[38;2;{255};{0};{0}mAll constants must be set first. \033[38;2;255;255;255m")
-        #     return False
-        # for r in np.linspace(0.1, self.rotor_radius, n_blade_elements):
-        #     pass
-        self._reset_values()
-        phi = self._root_phi(radius, chord, c_lift, c_drag)
-        return self._phi_to_all(phi, radius, chord, c_lift, c_drag)
+    def solve(self, resolution: int=100) -> dict:
+        self._assert_values()
+
+        # self._reset_values()
+        # phi = self._root_phi(radius, chord, c_lift, c_drag)
+        # return self._phi_to_all(phi, radius, chord, c_lift, c_drag)
 
     def _phi_to_all(self, phi: float, radius: float, chord: float, c_lift: float, c_drag: float) -> dict:
         local_solidity = self._local_solidity(chord, radius, self.n_blades)
@@ -70,6 +72,28 @@ class BEM():
 
     def _reset_values(self, axial_induction_factor: float=0):
         self.last_axial_induction_factor = axial_induction_factor
+
+    def _set(self, **kwargs) -> None:
+        """
+        Sets parameters of the instance. Raises an error if a parameter is trying to be set that doesn't exist.
+        :param kwargs:
+        :return:
+        """
+        params = self.__dict__
+        existing_parameters = [*params]
+        for parameter, value in kwargs.items():
+            if parameter not in existing_parameters:
+                raise ValueError(f"Parameter {parameter} cannot be set. Settable parameters are {existing_parameters}.")
+            params[parameter] = value
+        return None
+
+    def _assert_values(self):
+        not_set = list()
+        for variable, value in vars(self).items():
+            if value is None:
+                not_set.append(variable)
+        if len(not_set) != 0:
+            raise ValueError(f"Variable(s) {not_set} not set. Set all variables before use.")
 
     @staticmethod
     def _c_normal(phi: float, c_lift: float, c_drag: float) -> float:
@@ -120,5 +144,4 @@ class BEM():
     def _tangential_induction_factor(phi: float, local_solidity: float, c_tangent: float, tip_loss_correction: float)\
             -> float:
         return 1/((4*tip_loss_correction*np.sin(phi)*np.cos(phi))/(local_solidity*c_tangent)-1)
-
 
