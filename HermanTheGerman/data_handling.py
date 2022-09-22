@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import scipy.interpolate as interpolate
 
@@ -5,31 +6,36 @@ import scipy.interpolate as interpolate
 class AirfoilInterpolator:
     def __init__(self,
                  dir_data: str,
-                 data_profiles: dict,
+                 data_profiles: list or str,
                  **pandas_read_csv):
+        if type(data_profiles) == str:
+            data_profiles = [data_profiles]
         self.dir_data = dir_data
-        self.df_profiles = dict()
-        for specific, file in data_profiles.items():
-            self.df_profiles[specific] = pd.read_csv(dir_data+"/"+file, **pandas_read_csv)
-
+        self.df_profiles = list()
+        for file in data_profiles:
+            self.df_profiles.append(pd.read_csv(dir_data+"/"+file, **pandas_read_csv))
+    
     def interpolate(self,
-                    to_interpolate: list or str,
-                    second_argument: str) -> dict:
-        if type(to_interpolate) == str:
-            to_interpolate = [to_interpolate]
-
-        points = {var: list() for var in to_interpolate}
-        values = {var: list() for var in to_interpolate}
-        for base_arg in self.df_profiles.keys():
-            for _, row in self.df_profiles[base_arg].iterrows():
-                for variable in to_interpolate:
-                    points[variable].append((base_arg, row[second_argument]))
-                    values[variable].append(row[variable])
-
-        interpolated = {var: None for var in to_interpolate}
-        for variable in to_interpolate:
-            interpolated[variable] = interpolate.LinearNDInterpolator(points[variable], values[variable])
-        return interpolated
+                    to_interpolate: dict) -> dict:
+        """
+        Interpolation
+        :param to_interpolate: keys: values to interpolate, values: arguments for interpolation
+        :return:
+        """
+        interpolator = {var: None for var in to_interpolate}
+        for to_inter, arguments in to_interpolate.items():
+            if type(arguments) == str:
+                arguments = [arguments]
+            points = {var: list() for var in arguments}
+            values = list()
+            for df in self.df_profiles:
+                for _, row in df.iterrows():
+                    for arg in arguments:
+                        points[arg].append(row[arg])
+                    values.append(row[to_inter])
+            points = np.asarray([all_points for all_points in points.values()]).T
+            interpolator[to_inter] = interpolate.LinearNDInterpolator(points, values)
+        return interpolator
 
 
 

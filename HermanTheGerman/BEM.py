@@ -2,7 +2,7 @@ import numpy as np
 from scipy.optimize import brentq as root
 
 
-class BEM():
+class BEM:
     def __init__(self):
         self.last_axial_induction_factor = 0
 
