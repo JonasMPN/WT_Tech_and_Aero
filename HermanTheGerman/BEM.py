@@ -23,7 +23,7 @@ class BEM:
         self._set(**{param: value for param, value in locals().items() if param != "self"})
         return None
 
-    def solve(self, resolution: int=100) -> dict:
+    def solve(self) -> dict:
         self._assert_values()
 
         # self._reset_values()
