@@ -18,7 +18,10 @@ class AirfoilInterpolator:
     def interpolate(self,
                     to_interpolate: dict) -> dict:
         """
-        Interpolation
+        Multidimensional interpolation. The data is taken from the files that are specified during the initialisation of
+        the class' instance. The parameter 'to_interpolate' states which parameter(s) is(are) to be interpolated and on
+        which arguments this interpolation is based. The keys of 'to_interpolate' specify the parameters that will be
+        interpolated. The values of each key specify on which arguments the interpolation is based upon.
         :param to_interpolate: keys: values to interpolate, values: arguments for interpolation
         :return:
         """
