@@ -1,6 +1,5 @@
 import numpy as np
-naaaaaaaaaah
-git gud
+
 import matplotlib as plt
 
 
