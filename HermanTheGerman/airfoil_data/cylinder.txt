@@ -1,4 +1,4 @@
-alpha,c_l,c_d,c_m,thickness
+alpha,c_l,c_d,c_m,rel_thickness
 -180,0,0.6,0,1000
 -175,0,0.6,0,1000
 -170,0,0.6,0,1000
