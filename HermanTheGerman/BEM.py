@@ -1,36 +1,96 @@
+import matplotlib.pyplot as plt
 import numpy as np
-from scipy.optimize import brentq as root
-
+from scipy.optimize import brentq as root, newton
+import pandas as pd
+from data_handling import AirfoilInterpolator
 
 class BEM:
-    def __init__(self):
+    def __init__(self,
+                 data_dir: str,
+                 blade_data_file: str,
+                 aerodynamic_data_files: str or list,
+                 to_interpolate: dict):
         self.last_axial_induction_factor = 0
+        self.df_blade_data = pd.read_csv(data_dir+"/"+blade_data_file, index_col=None)
+        self.interpolator = AirfoilInterpolator(data_dir, aerodynamic_data_files).interpolate(to_interpolate)
 
         self.v0 = None
-        self.omega = None
         self.rotor_radius = None
         self.n_blades = None
         self.air_density = None
-        self.twist = None
-        self.pitch = None
+
+    def optimise(self,
+                 v0_interval: list,
+                 rpm_interval: list,
+                 resolution: int=100):
+        for v0 in np
 
     def set_constants(self,
-                      v0: float,
-                      omega: float,
                       rotor_radius: float,
                       n_blades: int,
                       air_density: float) -> None:
         self._set(**{param: value for param, value in locals().items() if param != "self"})
         return None
 
-    def solve(self) -> dict:
+    def solve(self,
+              v0: float,
+              pitch: float) -> tuple:
+        self.v0 = v0
         self._assert_values()
+        radii, normal_force, tangential_force = list(), list(), list()
+        for _, data in self.df_blade_data.iterrows():
+            self._reset_values()
+            radius, chord, twist = data["radius"], data["chord"], data["twist"]
+            rel_thickness = data["rel_thickness"]
+            phi = self._root_phi(radius, chord, twist, pitch, rel_thickness)
+            results = self._phi_to_all(phi, radius, chord, twist, rel_thickness)
+            radii.append(radius)
+            normal_force.append(results["normal_force"])
+            tangential_force.append(results["tangential_force"])
+        return radii, normal_force, tangential_force
 
-        # self._reset_values()
-        # phi = self._root_phi(radius, chord, c_lift, c_drag)
-        # return self._phi_to_all(phi, radius, chord, c_lift, c_drag)
+    def _root_phi(self,
+                  radius: float,
+                  chord: float,
+                  twist: float,
+                  pitch: float,
+                  rel_thickness: float,
+                  bracket=(-1e-1, np.pi/2)) -> float:
+        """
+        kwargs need to contain 'radius', 'twist', 'chord' and 'rel_thickness'.
+        :param bracket:
+        :param kwargs:
+        :return:
+        """
+        def residue(phi):
+            alpha = pitch+twist-phi
+            print(alpha)
+            c_lift = self.interpolator["c_l"](rel_thickness, alpha)
+            c_drag = self.interpolator["c_d"](rel_thickness, alpha)
+            if np.isnan(c_lift) or np.isnan(c_drag):
+              raise ValueError(f"Trying to extrapolate data for relative thickness {rel_thickness}, alpha {alpha}. "
+                               f"Only interpolation allowed.")
+            c_normal = self._c_normal(phi, c_lift, c_drag)
+            c_tangent = self._c_tangent(phi,  c_lift, c_drag)
+            tip_loss_correction = self._tip_loss_correction(radius, phi, self.rotor_radius, self.n_blades)
+            local_solidity = self._local_solidity(chord, radius, self.n_blades)
+            axial_induction_factor = self._axial_induction_factor(phi, local_solidity, c_normal, tip_loss_correction)
+            tangential_induction_factor = self._tangential_induction_factor(phi, local_solidity, c_tangent, tip_loss_correction)
+            lhs = np.sin(phi)/(1-axial_induction_factor)
+            rhs = self.v0*np.cos(phi)/(self.omega*radius*(1+tangential_induction_factor))
+            return lhs-rhs
+        # return root(residue, *bracket)
+        return newton(residue, 1)
 
-    def _phi_to_all(self, phi: float, radius: float, chord: float, c_lift: float, c_drag: float) -> dict:
+    def _phi_to_all(self,
+                    phi: float,
+                    radius: float,
+                    chord: float,
+                    twist: float,
+                    rel_thickness: float) -> dict:
+        alpha = twist-phi
+        c_lift = self.interpolator["c_l"](rel_thickness, alpha)
+        c_drag = self.interpolator["c_d"](rel_thickness, alpha)
         local_solidity = self._local_solidity(chord, radius, self.n_blades)
         c_normal = self._c_normal(phi, c_lift, c_drag)
         c_tangent = self._c_tangent(phi,  c_lift, c_drag)
@@ -58,17 +118,6 @@ class BEM:
                 return local_solidity*((1-a)/np.sin(phi))**2*c_normal-4*a*tip_loss_correction*(1-a/4*(5-3*a))
             self.last_axial_induction_factor = root(to_solve, 0, 1)
         return self.last_axial_induction_factor
-
-    def _root_phi(self, r: float, chord: float, c_lift: float, c_drag: float, bracket=(-0.1,np.pi/2)) -> tuple:
-        def residue(phi):
-            c_normal = self._c_normal(phi, c_lift, c_drag)
-            c_tangent = self._c_tangent(phi,  c_lift, c_drag)
-            tip_loss_correction = self._tip_loss_correction(r, phi, self.rotor_radius, self.n_blades)
-            local_solidity = self._local_solidity(chord, r, self.n_blades)
-            axial_induction_factor = self._axial_induction_factor(phi, local_solidity, c_normal, tip_loss_correction)
-            tangential_induction_factor = self._tangential_induction_factor(phi, local_solidity, c_tangent, tip_loss_correction)
-            return np.sin(phi)/(1-axial_induction_factor)-self.v0*np.cos(phi)/(self.omega*r*(1+tangential_induction_factor))
-        return root(residue, bracket[0], bracket[1])
 
     def _reset_values(self, axial_induction_factor: float=0):
         self.last_axial_induction_factor = axial_induction_factor
@@ -138,6 +187,8 @@ class BEM:
         :param n_blades: number of blades
         :return: Prandtl tip loss correction
         """
+        if np.sin(np.abs(phi)) < 0.01:
+            return 1
         return 2/np.pi*np.arccos(np.exp(-(n_blades*(rotor_radius-r))/(2*r*np.sin(np.abs(phi)))))
 
     @staticmethod
