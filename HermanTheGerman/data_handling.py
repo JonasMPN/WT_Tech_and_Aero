@@ -39,7 +39,3 @@ class AirfoilInterpolator:
             points = np.asarray([all_points for all_points in points.values()]).T
             interpolator[to_inter] = interpolate.LinearNDInterpolator(points, values)
         return interpolator
-
-
-
-
