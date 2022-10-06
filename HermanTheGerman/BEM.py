@@ -10,44 +10,61 @@ class BEM:
                  blade_data_file: str,
                  aerodynamic_data_files: str or list,
                  to_interpolate: dict):
-        self.last_axial_induction_factor = 0
         self.df_blade_data = pd.read_csv(data_dir+"/"+blade_data_file, index_col=None)
         self.interpolator = AirfoilInterpolator(data_dir, aerodynamic_data_files).interpolate(to_interpolate)
-
         self.v0 = None
         self.rotor_radius = None
         self.n_blades = None
         self.air_density = None
-
-    def optimise(self,
-                 v0_interval: list,
-                 rpm_interval: list,
-                 resolution: int=100):
-        for v0 in np
+        self.omega = None
 
     def set_constants(self,
                       rotor_radius: float,
                       n_blades: int,
+                      v0: float,
                       air_density: float) -> None:
         self._set(**{param: value for param, value in locals().items() if param != "self"})
         return None
 
+    def optimise(self,
+                 tpr_interval: tuple,
+                 pitch_interval: tuple,
+                 resolution: int=50) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        tip_speed_ratios, c_Ps, pitch_angle = list(), list(), list()
+        swept_area = np.pi*self.rotor_radius**2
+        flow_power = 0.5*self.air_density*swept_area*self.v0**3
+        c_Ps = np.zeros((resolution, resolution))
+        TPRs, pitch_angles = np.linspace(*tpr_interval, resolution), np.deg2rad(np.linspace(*pitch_interval, resolution))
+        for tpr_i, tpr in enumerate(TPRs):
+            tip_speed_ratios.append(tpr)
+            omega = tpr*self.v0/self.rotor_radius
+            for pitch_i, pitch in enumerate(pitch_angles):
+                radii, _, F_t = self.solve(self.v0, omega, pitch)
+                F_t[-1] = 0
+                torque = self.n_blades * np.trapz(F_t*radii, radii)
+                power = torque*omega
+                c_Ps[pitch_i, tpr_i] = power/flow_power
+                pitch_angle.append(pitch)
+        tip_speed_ratios, pitch_angles = np.meshgrid(TPRs, pitch_angles)
+        return tip_speed_ratios, pitch_angles, c_Ps
+
     def solve(self,
               v0: float,
-              pitch: float) -> tuple:
+              omega: float,
+              pitch: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         self.v0 = v0
+        self.omega = omega
         self._assert_values()
         radii, normal_force, tangential_force = list(), list(), list()
         for _, data in self.df_blade_data.iterrows():
-            self._reset_values()
             radius, chord, twist = data["radius"], data["chord"], data["twist"]
             rel_thickness = data["rel_thickness"]
             phi = self._root_phi(radius, chord, twist, pitch, rel_thickness)
-            results = self._phi_to_all(phi, radius, chord, twist, rel_thickness)
+            results = self._phi_to_all(phi, radius, chord, twist, pitch, rel_thickness)
             radii.append(radius)
             normal_force.append(results["normal_force"])
             tangential_force.append(results["tangential_force"])
-        return radii, normal_force, tangential_force
+        return np.asarray(radii), np.asarray(normal_force), np.asarray(tangential_force)
 
     def _root_phi(self,
                   radius: float,
@@ -55,7 +72,7 @@ class BEM:
                   twist: float,
                   pitch: float,
                   rel_thickness: float,
-                  bracket=(-1e-1, np.pi/2)) -> float:
+                  bracket=(1e-5, np.pi/2)) -> float:
         """
         kwargs need to contain 'radius', 'twist', 'chord' and 'rel_thickness'.
         :param bracket:
@@ -63,8 +80,7 @@ class BEM:
         :return:
         """
         def residue(phi):
-            alpha = pitch+twist-phi
-            print(alpha)
+            alpha = phi-(pitch+twist)
             c_lift = self.interpolator["c_l"](rel_thickness, alpha)
             c_drag = self.interpolator["c_d"](rel_thickness, alpha)
             if np.isnan(c_lift) or np.isnan(c_drag):
@@ -74,28 +90,30 @@ class BEM:
             c_tangent = self._c_tangent(phi,  c_lift, c_drag)
             tip_loss_correction = self._tip_loss_correction(radius, phi, self.rotor_radius, self.n_blades)
             local_solidity = self._local_solidity(chord, radius, self.n_blades)
-            axial_induction_factor = self._axial_induction_factor(phi, local_solidity, c_normal, tip_loss_correction)
+            axial_induction_factor = self._root_axial_induction_factor(phi, local_solidity, c_normal, tip_loss_correction)
             tangential_induction_factor = self._tangential_induction_factor(phi, local_solidity, c_tangent, tip_loss_correction)
             lhs = np.sin(phi)/(1-axial_induction_factor)
             rhs = self.v0*np.cos(phi)/(self.omega*radius*(1+tangential_induction_factor))
             return lhs-rhs
-        # return root(residue, *bracket)
-        return newton(residue, 1)
+        # print("phi:", residue(bracket[0]), residue(bracket[1]))
+        return root(residue, *bracket)
+        # return newton(residue, .1)
 
     def _phi_to_all(self,
                     phi: float,
                     radius: float,
                     chord: float,
                     twist: float,
+                    pitch: float,
                     rel_thickness: float) -> dict:
-        alpha = twist-phi
+        alpha = phi-(pitch+twist)
         c_lift = self.interpolator["c_l"](rel_thickness, alpha)
         c_drag = self.interpolator["c_d"](rel_thickness, alpha)
         local_solidity = self._local_solidity(chord, radius, self.n_blades)
         c_normal = self._c_normal(phi, c_lift, c_drag)
         c_tangent = self._c_tangent(phi,  c_lift, c_drag)
         tip_loss_correction = self._tip_loss_correction(radius, phi, self.rotor_radius, self.n_blades)
-        axial_if = self._axial_induction_factor(phi, local_solidity, c_normal, tip_loss_correction)
+        axial_if = self._root_axial_induction_factor(phi, local_solidity, c_normal, tip_loss_correction)
         tangential_if = self._tangential_induction_factor(phi, local_solidity, c_tangent, tip_loss_correction)
         relative_flow = np.sqrt((self.omega*radius*(1+tangential_if))**2+(self.v0*(1-axial_if))**2)
         normal_force = 0.5*self.air_density*relative_flow**2*chord*c_normal
@@ -109,18 +127,20 @@ class BEM:
             "tip_loss_correction": tip_loss_correction,
         }
 
-    def _axial_induction_factor(self, phi: float, local_solidity: float, c_normal: float, tip_loss_correction: float) \
-            -> float:
-        if self.last_axial_induction_factor <= 1/3:
-            self.last_axial_induction_factor = 1/((4*tip_loss_correction*np.sin(phi)**2)/(local_solidity*c_normal)+1)
-        else:
-            def to_solve(a):
-                return local_solidity*((1-a)/np.sin(phi))**2*c_normal-4*a*tip_loss_correction*(1-a/4*(5-3*a))
-            self.last_axial_induction_factor = root(to_solve, 0, 1)
-        return self.last_axial_induction_factor
+    def _root_axial_induction_factor(self,
+                                     phi: float,
+                                     local_solidity: float,
+                                     c_normal: float,
+                                     tip_loss_correction: float,
+                                     bracket: tuple=(-0.5,1)) -> float:
+        def residue(aif):
+            if aif <= 1/3:
+                return 1/((4*tip_loss_correction*np.sin(phi)**2)/(local_solidity*c_normal)+1)-aif
+            else:
+                return local_solidity*((1-aif)/np.sin(phi))**2*c_normal-4*aif*tip_loss_correction*(1-aif/4*(5-3*aif))
+        return root(residue, *bracket)
+        # return newton(residue, 0)
 
-    def _reset_values(self, axial_induction_factor: float=0):
-        self.last_axial_induction_factor = axial_induction_factor
 
     def _set(self, **kwargs) -> None:
         """
