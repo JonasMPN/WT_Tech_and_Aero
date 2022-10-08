@@ -1,8 +1,8 @@
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import brentq as root, newton
 import pandas as pd
-from data_handling import AirfoilInterpolator
+from data_handling import AirfoilInterpolator, BemData
+from copy import copy
 
 class BEM:
     def __init__(self,
@@ -10,8 +10,9 @@ class BEM:
                  blade_data_file: str,
                  aerodynamic_data_files: str or list,
                  to_interpolate: dict):
-        self.df_blade_data = pd.read_csv(data_dir+"/"+blade_data_file, index_col=None)
         self.interpolator = AirfoilInterpolator(data_dir, aerodynamic_data_files).interpolate(to_interpolate)
+        self.bem_data = BemData(data_dir)
+        self.df_blade_data = pd.read_csv(data_dir+"/"+blade_data_file, index_col=None)
         self.v0 = None
         self.rotor_radius = None
         self.n_blades = None
@@ -26,28 +27,6 @@ class BEM:
         self._set(**{param: value for param, value in locals().items() if param != "self"})
         return None
 
-    def optimise(self,
-                 tpr_interval: tuple,
-                 pitch_interval: tuple,
-                 resolution: int=50) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        tip_speed_ratios, c_Ps, pitch_angle = list(), list(), list()
-        swept_area = np.pi*self.rotor_radius**2
-        flow_power = 0.5*self.air_density*swept_area*self.v0**3
-        c_Ps = np.zeros((resolution, resolution))
-        TPRs, pitch_angles = np.linspace(*tpr_interval, resolution), np.deg2rad(np.linspace(*pitch_interval, resolution))
-        for tpr_i, tpr in enumerate(TPRs):
-            print(f"Finished {np.round(tpr_i/len(TPRs)*100,3)}%.")
-            tip_speed_ratios.append(tpr)
-            omega = tpr*self.v0/self.rotor_radius
-            for pitch_i, pitch in enumerate(pitch_angles):
-                radii, _, F_t = self.solve(self.v0, omega, pitch)
-                F_t[-1] = 0
-                torque = self.n_blades * np.trapz(F_t*radii, radii)
-                power = torque*omega
-                c_Ps[pitch_i, tpr_i] = power/flow_power
-                pitch_angle.append(pitch)
-        tip_speed_ratios, pitch_angles = np.meshgrid(TPRs, pitch_angles)
-        return tip_speed_ratios, pitch_angles, c_Ps
 
     def solve(self,
               v0: float,
@@ -66,6 +45,86 @@ class BEM:
             normal_force.append(results["normal_force"])
             tangential_force.append(results["tangential_force"])
         return np.asarray(radii), np.asarray(normal_force), np.asarray(tangential_force)
+
+    def optimise(self,
+                 tsr_interval: tuple,
+                 pitch_interval: tuple,
+                 resolution: int=50) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        tip_speed_ratios, c_Ps, pitch_angle = list(), list(), list()
+        swept_area = np.pi*self.rotor_radius**2
+        flow_power = 0.5*self.air_density*swept_area*self.v0**3
+        c_Ps = np.zeros((resolution, resolution))
+        TSRs, pitch_angles = np.linspace(*tsr_interval, resolution), np.deg2rad(np.linspace(*pitch_interval, resolution))
+        for tsr_i, tpr in enumerate(TSRs):
+            print(f"Finished {np.round(tsr_i/len(TSRs)*100,3)}%.")
+            tip_speed_ratios.append(tpr)
+            omega = tpr*self.v0/self.rotor_radius
+            for pitch_i, pitch in enumerate(pitch_angles):
+                power = self._power_output(self.v0, omega, pitch)
+                c_Ps[pitch_i, tsr_i] = power/flow_power
+                pitch_angle.append(pitch)
+        pitch_angles, tip_speed_ratios = np.meshgrid(pitch_angles, TSRs)
+        return tip_speed_ratios, pitch_angles, c_Ps
+
+    def pitch_curve(self,
+                    rated_power: float,
+                    wind_speeds: tuple,
+                    pitch_step_size: float,
+                    optimums_from_res: int=None,
+                    tsr_optimum: float=None,
+                    pitch_optimum: float=None,
+                    loop_breaker: int=1000) -> tuple[np.ndarray, list, list, list, list]:
+        """
+
+        :param rated_power:
+        :param wind_speeds: (v0_min, v0_max, resolution)
+        :param resolution:
+        :param optimums_from_res:
+        :param tsr_optimum:
+        :param pitch_optimum:
+        :return:
+        """
+        if optimums_from_res:
+            tsr_optimum, pitch_optimum = self.bem_data.optimum_from_resolution(optimums_from_res)
+        power_curve= list()
+        power_curve_feather, pitch_curve_feather = list(), list()
+        power_curve_stall, pitch_curve_stall = list(), list()
+        pitch, pitch_feather, pitch_stall = pitch_optimum, copy(pitch_optimum), copy(pitch_optimum)
+        v0s = np.linspace(*wind_speeds)
+        for v0 in v0s:
+            omega = tsr_optimum*v0/self.rotor_radius
+            power = self._power_output(v0, omega, pitch)
+            power_curve.append(power),
+            if power > rated_power:
+                power_feather, power_stall = copy(power), copy(power)
+                counter = 0
+                while power_feather > rated_power:
+                    pitch_feather += pitch_step_size
+                    power_feather = self._power_output(v0, omega, pitch_feather)
+                    counter += 1
+                    if counter > loop_breaker:
+                        raise ValueError(f"Could not pitch to rated power with {loop_breaker*pitch_step_size}° change "
+                                         f"(feathering).")
+                counter = 0
+                while power_stall > rated_power:
+                    pitch_stall -= pitch_step_size
+                    power_stall = self._power_output(v0, omega, pitch_feather)
+                    counter += 1
+                    if counter > loop_breaker:
+                        raise ValueError(f"Could not pitch to rated power with {loop_breaker*pitch_step_size}° change "
+                                         f"(stall).")
+                pitch_curve_feather.append(pitch_feather)
+                power_curve_feather.append(power_feather)
+                pitch_curve_stall.append(pitch_stall)
+                power_curve_stall.append(power_stall)
+        return v0s, pitch_curve_feather, power_curve_feather, pitch_curve_stall, power_curve_stall
+
+
+    def _power_output(self, v0, omega, pitch) -> float:
+        radii, _, F_t = self.solve(v0, omega, pitch)
+        F_t[-1] = 0
+        torque = self.n_blades * np.trapz(F_t * radii, radii)
+        return torque*omega
 
     def _root_phi(self,
                   radius: float,
