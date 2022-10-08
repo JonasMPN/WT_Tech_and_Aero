@@ -36,6 +36,7 @@ class BEM:
         c_Ps = np.zeros((resolution, resolution))
         TPRs, pitch_angles = np.linspace(*tpr_interval, resolution), np.deg2rad(np.linspace(*pitch_interval, resolution))
         for tpr_i, tpr in enumerate(TPRs):
+            print(f"Finished {np.round(tpr_i/len(TPRs)*100,3)}%.")
             tip_speed_ratios.append(tpr)
             omega = tpr*self.v0/self.rotor_radius
             for pitch_i, pitch in enumerate(pitch_angles):
