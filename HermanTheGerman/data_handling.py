@@ -1,6 +1,9 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy.interpolate as interpolate
+from helper_functions import Helper
+helper = Helper()
 
 
 class AirfoilInterpolator:
@@ -39,3 +42,57 @@ class AirfoilInterpolator:
             points = np.asarray([all_points for all_points in points.values()]).T
             interpolator[to_inter] = interpolate.LinearNDInterpolator(points, values)
         return interpolator
+
+
+class BemData:
+    def __init__(self, data_dir: str):
+        self.dir_data = data_dir
+
+    def save(self,
+             resolution: int,
+             tip_speed_ratios: np.ndarray,
+             pitch_angles: np.ndarray,
+             c_Ps: np.ndarray) -> None:
+        np.save(f"data/tsr_{resolution}.npy", tip_speed_ratios)
+        np.save(f"data/pitch_{resolution}.npy", pitch_angles)
+        np.save(f"data/cps_{resolution}.npy", c_Ps)
+        return None
+
+    def contourf(self,
+                 resolution: int,
+                 contourf_kwargs: dict=None,
+                 axes_kwargs: dict=None,
+                 figure_kwargs: dict=None,
+                 add_to_fig_name: str="") -> None:
+        contourf_kwargs = {} if contourf_kwargs is None else contourf_kwargs
+        axes_kwargs = {} if axes_kwargs is None else axes_kwargs
+        figure_kwargs = {} if figure_kwargs is None else figure_kwargs
+
+        tsr = np.load(self.dir_data+f"/tsr_{resolution}.npy")
+        pitch = np.load(self.dir_data+f"/pitch_{resolution}.npy")
+        cps = np.load(self.dir_data+f"/cps_{resolution}.npy")
+        fig, ax = plt.subplots()
+        CS = ax.contour(tsr, pitch, cps, **contourf_kwargs)
+        ax.clabel(CS, inline=True, fontsize=10)
+        helper.handle_axis(ax, **axes_kwargs)
+        plt.close(helper.handle_figure(fig, self.dir_data+f"/contour_{resolution}{add_to_fig_name}.png", **figure_kwargs))
+        return None
+
+    def surface(self,
+                resolution: int,
+                surface_kwargs: dict=None,
+                axes_kwargs: dict=None,
+                figure_kwargs: dict=None,
+                add_to_fig_name: str="") -> None:
+        surface_kwargs = {} if surface_kwargs is None else surface_kwargs
+        axes_kwargs = {} if axes_kwargs is None else axes_kwargs
+        figure_kwargs = {} if figure_kwargs is None else figure_kwargs
+
+        tsr = np.load(self.dir_data+f"/tsr_{resolution}/.n[y")
+        pitch = np.load(self.dir_data+f"/pitch_{resolution}/.n[y")
+        cps = np.load(self.dir_data+f"/cps_{resolution}/.n[y")
+        fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+        ax.plot_surface(tsr, pitch, cps, **surface_kwargs)
+        helper.handle_axis(ax, **axes_kwargs)
+        plt.close(helper.handle_figure(fig, self.dir_data+f"/contour_{resolution}{add_to_fig_name}.png", **figure_kwargs))
+        return None
