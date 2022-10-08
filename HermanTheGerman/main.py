@@ -14,7 +14,7 @@ do = {
 
 res = 500
 if do["calculate"]:
-    v_min, v_max, rpm_min, rpm_max = 5, 25, 6, 9.6
+    v_min, v_max, rpm_min, rpm_max = 6, 25, 6, 9.6
     omega_min, omega_max = rpm_min*np.pi/30, rpm_max*np.pi/30
     rotor_radius = 89.17
     bem = BEM("airfoil_data",
@@ -25,8 +25,8 @@ if do["calculate"]:
                       n_blades=3,
                       v0=10,
                       air_density=1.225)
-    bem_data.save(res, *bem.optimise(tpr_interval=(omega_min*rotor_radius/v_max, omega_max*rotor_radius/v_min),
-                                pitch_interval=(-2,5), resolution=res))
+    bem_data.save(res, *bem.optimise(tsr_interval=(omega_min*rotor_radius/v_max, omega_max*rotor_radius/v_min),
+                                     pitch_interval=(-2,5), resolution=res))
 
 if do["contourf"]:
     contourf_kwargs = {
