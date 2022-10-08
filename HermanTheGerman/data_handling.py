@@ -96,3 +96,22 @@ class BemData:
         helper.handle_axis(ax, **axes_kwargs)
         plt.close(helper.handle_figure(fig, self.dir_data+f"/contour_{resolution}{add_to_fig_name}.png", **figure_kwargs))
         return None
+
+    def optimum_from_resolution(self, resolution: int) -> tuple[float, float]:
+        tsr = np.load(self.dir_data+f"/tsr_{resolution}.npy")
+        pitch = np.load(self.dir_data+f"/pitch_{resolution}.npy")
+        cps = np.load(self.dir_data+f"/cps_{resolution}.npy")
+        id_max = np.unravel_index(cps.argmax(), (resolution, resolution))
+        return tsr[id_max], pitch[id_max]
+
+
+
+
+
+
+
+
+
+
+
+
