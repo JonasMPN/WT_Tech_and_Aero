@@ -33,7 +33,8 @@ if do["calculate_cp_max"]:
                  resolution=res)
 
 if do["calculate_pitch_curve"]:
-    bem.pitch_curve(rated_power=10.64e6, wind_speeds=(6,24,200), pitch_step_size=pitch_step_size, tsr_optimum=8, pitch_optimum=0)
+    bem.pitch_curve(rated_power=10.64e6, wind_speeds=(v_min,v_max,res),
+                    pitch_step_size=pitch_step_size, tsr_optimum=8, pitch_optimum=0)
 
 if do["contourf"]:
     contourf_kwargs = {

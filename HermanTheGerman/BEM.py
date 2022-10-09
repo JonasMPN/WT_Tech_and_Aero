@@ -95,6 +95,7 @@ class BEM:
         power_curve_feather, pitch_curve_feather = list(), list()
         power_curve_stall, pitch_curve_stall = list(), list()
         pitch, pitch_feather, pitch_stall = pitch_optimum, copy(pitch_optimum), copy(pitch_optimum)
+        omega = 0
         for i, v0 in enumerate(np.linspace(*wind_speeds)):
             print(f"Finished {np.round(i / wind_speeds[2] * 100, 3)}%.")
             omega = tsr_optimum * v0 / self.rotor_radius
@@ -107,7 +108,6 @@ class BEM:
 
         for i, v0 in enumerate(np.linspace(ramp_v0[-1], wind_speeds[1], wind_speeds[2]-len(ramp_v0))):
             print(f"Finished {np.round((i+len(ramp_v0))/wind_speeds[2]*100, 3)}%.")
-            omega = tsr_optimum * v0 / self.rotor_radius
             power_feather = self._power_output(v0, omega, pitch_feather)
             power_stall = self._power_output(v0, omega, pitch_stall)
             counter = 0
@@ -163,12 +163,6 @@ class BEM:
                   pitch: float,
                   rel_thickness: float,
                   bracket=(1e-5, np.pi/2)) -> float:
-        """
-        kwargs need to contain 'radius', 'twist', 'chord' and 'rel_thickness'.
-        :param bracket:
-        :param kwargs:
-        :return:
-        """
         def residue(phi):
             alpha = phi-(pitch+twist)
             c_lift = self.interpolator["c_l"](rel_thickness, alpha)
@@ -216,13 +210,12 @@ class BEM:
             "tangential_force": tangential_force,
             "tip_loss_correction": tip_loss_correction,
         }
-
-    def _root_axial_induction_factor(self,
-                                     phi: float,
+    @staticmethod
+    def _root_axial_induction_factor(phi: float,
                                      local_solidity: float,
                                      c_normal: float,
                                      tip_loss_correction: float,
-                                     bracket: tuple=(-0.5,1)) -> float:
+                                     bracket: tuple=(-1,1)) -> float:
         def residue(aif):
             if aif <= 1/3:
                 return 1/((4*tip_loss_correction*np.sin(phi)**2)/(local_solidity*c_normal)+1)-aif
@@ -231,7 +224,6 @@ class BEM:
         # print(phi, residue(bracket[0]), residue(bracket[1]))
         return root(residue, *bracket)
         # return newton(residue, 0)
-
 
     def _set(self, **kwargs) -> None:
         """
