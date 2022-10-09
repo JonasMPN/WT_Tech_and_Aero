@@ -103,31 +103,54 @@ class BemData:
         axes_kwargs = {} if axes_kwargs is None else axes_kwargs
         figure_kwargs = {} if figure_kwargs is None else figure_kwargs
 
-        ramp_v0 = np.load(self.dir_data+f"/ramp_v0_{pitch_step_size}.npy")
-        ramp_power = np.load(self.dir_data+f"/ramp_power_{pitch_step_size}.npy")
-        ramp_pitch = np.rad2deg(np.load(self.dir_data+f"/ramp_pitch_{pitch_step_size}.npy"))
-
-        control_v0 = np.load(self.dir_data+f"/control_v0_{pitch_step_size}.npy")
-        pitch_curve_feather = np.rad2deg(np.load(self.dir_data+f"/pitch_curve_feather_{pitch_step_size}.npy"))
-        power_curve_feather = np.load(self.dir_data+f"/power_curve_feather_{pitch_step_size}.npy")
-        pitch_curve_stall = np.rad2deg(np.load(self.dir_data+f"/pitch_curve_stall_{pitch_step_size}.npy"))
-        power_curve_stall = np.load(self.dir_data+f"/power_curve_stall_{pitch_step_size}.npy")
+        df_ramp = pd.read_csv(self.dir_data+f"/{pitch_step_size}_ramp.dat", index_col=None)
+        df_control = pd.read_csv(self.dir_data+f"/{pitch_step_size}_control.dat", index_col=None)
 
         fig, ax = plt.subplots()
-        ax.plot(ramp_v0, ramp_power, label="ramp up")
-        ax.plot(control_v0, power_curve_stall, label="stall")
-        ax.plot(control_v0, power_curve_feather, label="feather")
+        ax.plot(df_ramp["v0"], df_ramp["power"], "k", label="ramp up")
+        ax.plot(df_control["v0"], df_control["power_stall"], label="stall")
+        ax.plot(df_control["v0"], df_control["power_feather"], label="feather")
         helper.handle_axis(ax, title="Power curve", legend=True, x_label=r"$v_0$ in $\frac{m}{s}$", y_label="power in W",
                            font_size=20)
         plt.close(helper.handle_figure(fig, self.dir_data+f"/power_{pitch_step_size}.png"))
 
         fig, ax = plt.subplots()
-        ax.plot(ramp_v0, ramp_pitch, label="ramp up")
-        ax.plot(control_v0, pitch_curve_stall, label="stall")
-        ax.plot(control_v0, pitch_curve_feather, label="feather")
+        ax.plot(df_ramp["v0"], df_ramp["pitch"], "k", label="ramp up")
+        ax.plot(df_control["v0"], df_control["pitch_stall"].apply(np.rad2deg), label="stall")
+        ax.plot(df_control["v0"], df_control["pitch_feather"].apply(np.rad2deg), label="feather")
         helper.handle_axis(ax, title="Pitch curve", legend=True, x_label=r"$v_0$ in $\frac{m}{s}$", y_label="pitch in °",
                            font_size=20)
         plt.close(helper.handle_figure(fig, self.dir_data+f"/pitch_{pitch_step_size}.png"))
+
+        fig, ax = plt.subplots()
+        ax.plot(df_control["v0"], df_control["stall_pitch_steps"], label="stall")
+        ax.plot(df_control["v0"], df_control["feather_pitch_steps"], label="feather")
+        helper.handle_axis(ax, title="Pitch steps", legend=True, x_label=r"$v_0$ in $\frac{m}{s}$",
+                           y_label="pitch steps", font_size=20)
+        plt.close(helper.handle_figure(fig, self.dir_data+f"/pitch_steps_{pitch_step_size}.png"))
+
+        fig, ax = plt.subplots()
+        ax.plot(df_control["v0"], df_control["stall_step_size"], label="stall")
+        ax.plot(df_control["v0"], df_control["feather_step_size"], label="feather")
+        helper.handle_axis(ax, title="Pitch step size", legend=True, x_label=r"$v_0$ in $\frac{m}{s}$",
+                           y_label="pitch step size", font_size=20)
+        plt.close(helper.handle_figure(fig, self.dir_data+f"/pitch_step_size_{pitch_step_size}.png"))
+
+        fig, ax = plt.subplots()
+        ax.plot(df_ramp["v0"], df_ramp["cP"], label="ramp")
+        ax.plot(df_control["v0"], df_control["feather_cP"], label="feather")
+        ax.plot(df_control["v0"], df_control["stall_cP"], label="stall")
+        helper.handle_axis(ax, title="Power coefficient", legend=True, x_label=r"$v_0$ in $\frac{m}{s}$",
+                           y_label=r"$c_P$", font_size=20)
+        plt.close(helper.handle_figure(fig, self.dir_data+f"/cP_{pitch_step_size}.png"))
+
+        fig, ax = plt.subplots()
+        ax.plot(df_ramp["v0"], df_ramp["cT"], label="ramp")
+        ax.plot(df_control["v0"], df_control["feather_cT"], label="feather")
+        ax.plot(df_control["v0"], df_control["stall_cT"], label="stall")
+        helper.handle_axis(ax, title="Thrust coefficient", legend=True, x_label=r"$v_0$ in $\frac{m}{s}$",
+                           y_label=r"$c_t$", font_size=20)
+        plt.close(helper.handle_figure(fig, self.dir_data+f"/cT_{pitch_step_size}.png"))
         return None
 
     def optimum_from_resolution(self, resolution: int) -> tuple[float, float]:
@@ -137,7 +160,23 @@ class BemData:
         id_max = np.unravel_index(cps.argmax(), (resolution, resolution))
         return tsr[id_max], pitch[id_max]
 
-    def save(self, **kwargs: object) -> None:
+    def save_dataframe(self, add_to_filename:str="", **kwargs):
+        """
+        :param kwargs: One kwarg has to be 'resolution'
+        :return:
+        """
+        df = pd.DataFrame()
+        resolution = kwargs["resolution"]
+        kwargs.pop("resolution")
+        for parameter, values in kwargs.items():
+            df[parameter] = values
+        df.to_csv(self.dir_data+f"/{resolution}{add_to_filename}.dat", index=False)
+
+    def save(self, **kwargs) -> None:
+        """
+        :param kwargs: One kwarg has to be 'resolution'
+        :return:
+        """
         resolution = kwargs["resolution"]
         kwargs.pop("resolution")
         for parameter, values in kwargs.items():
