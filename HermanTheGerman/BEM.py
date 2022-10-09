@@ -6,13 +6,14 @@ from copy import copy
 
 class BEM:
     def __init__(self,
-                 data_dir: str,
+                 airfoil_data_dir: str,
+                 dir_save: str,
                  blade_data_file: str,
                  aerodynamic_data_files: str or list,
                  to_interpolate: dict):
-        self.interpolator = AirfoilInterpolator(data_dir, aerodynamic_data_files).interpolate(to_interpolate)
-        self.bem_data = BemData(data_dir)
-        self.df_blade_data = pd.read_csv(data_dir+"/"+blade_data_file, index_col=None)
+        self.interpolator = AirfoilInterpolator(airfoil_data_dir, aerodynamic_data_files).interpolate(to_interpolate)
+        self.bem_data = BemData(dir_save)
+        self.df_blade_data = pd.read_csv(airfoil_data_dir+"/"+blade_data_file, index_col=None)
         self.v0 = None
         self.rotor_radius = None
         self.n_blades = None
@@ -26,7 +27,6 @@ class BEM:
                       air_density: float) -> None:
         self._set(**{param: value for param, value in locals().items() if param != "self"})
         return None
-
 
     def solve(self,
               v0: float,
@@ -49,7 +49,7 @@ class BEM:
     def optimise(self,
                  tsr_interval: tuple,
                  pitch_interval: tuple,
-                 resolution: int=50) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+                 resolution: int=50,) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         tip_speed_ratios, c_Ps, pitch_angle = list(), list(), list()
         swept_area = np.pi*self.rotor_radius**2
         flow_power = 0.5*self.air_density*swept_area*self.v0**3
@@ -64,6 +64,7 @@ class BEM:
                 c_Ps[pitch_i, tsr_i] = power/flow_power
                 pitch_angle.append(pitch)
         pitch_angles, tip_speed_ratios = np.meshgrid(pitch_angles, TSRs)
+        self.bem_data.save(resolution=resolution, pitch=pitch_angles, tsr=tip_speed_ratios)
         return tip_speed_ratios, pitch_angles, c_Ps
 
     def pitch_curve(self,
@@ -73,52 +74,81 @@ class BEM:
                     optimums_from_res: int=None,
                     tsr_optimum: float=None,
                     pitch_optimum: float=None,
-                    loop_breaker: int=1000) -> tuple[np.ndarray, list, list, list, list]:
+                    loop_breaker: int=2000) -> None:
         """
 
         :param rated_power:
         :param wind_speeds: (v0_min, v0_max, resolution)
         :param resolution:
+        :param pitch_step_size: in degree
         :param optimums_from_res:
         :param tsr_optimum:
         :param pitch_optimum:
+        :param loop_breaker:
         :return:
         """
+        pitch_step_size = np.deg2rad(pitch_step_size)
+        pitch_step_size_feather, pitch_step_size_stall = copy(pitch_step_size), copy(pitch_step_size)
         if optimums_from_res:
             tsr_optimum, pitch_optimum = self.bem_data.optimum_from_resolution(optimums_from_res)
-        power_curve= list()
+        ramp_power, ramp_pitch, ramp_v0, control_v0 = list(), list(), list(), list()
         power_curve_feather, pitch_curve_feather = list(), list()
         power_curve_stall, pitch_curve_stall = list(), list()
         pitch, pitch_feather, pitch_stall = pitch_optimum, copy(pitch_optimum), copy(pitch_optimum)
-        v0s = np.linspace(*wind_speeds)
-        for v0 in v0s:
-            omega = tsr_optimum*v0/self.rotor_radius
+        for i, v0 in enumerate(np.linspace(*wind_speeds)):
+            print(f"Finished {np.round(i / wind_speeds[2] * 100, 3)}%.")
+            omega = tsr_optimum * v0 / self.rotor_radius
             power = self._power_output(v0, omega, pitch)
-            power_curve.append(power),
             if power > rated_power:
-                power_feather, power_stall = copy(power), copy(power)
-                counter = 0
-                while power_feather > rated_power:
-                    pitch_feather += pitch_step_size
-                    power_feather = self._power_output(v0, omega, pitch_feather)
-                    counter += 1
-                    if counter > loop_breaker:
-                        raise ValueError(f"Could not pitch to rated power with {loop_breaker*pitch_step_size}° change "
-                                         f"(feathering).")
-                counter = 0
-                while power_stall > rated_power:
-                    pitch_stall -= pitch_step_size
-                    power_stall = self._power_output(v0, omega, pitch_feather)
-                    counter += 1
-                    if counter > loop_breaker:
-                        raise ValueError(f"Could not pitch to rated power with {loop_breaker*pitch_step_size}° change "
-                                         f"(stall).")
-                pitch_curve_feather.append(pitch_feather)
-                power_curve_feather.append(power_feather)
-                pitch_curve_stall.append(pitch_stall)
-                power_curve_stall.append(power_stall)
-        return v0s, pitch_curve_feather, power_curve_feather, pitch_curve_stall, power_curve_stall
+                break
+            ramp_power.append(power)
+            ramp_pitch.append(pitch)
+            ramp_v0.append(v0)
 
+        for i, v0 in enumerate(np.linspace(ramp_v0[-1], wind_speeds[1], wind_speeds[2]-len(ramp_v0))):
+            print(f"Finished {np.round((i+len(ramp_v0))/wind_speeds[2]*100, 3)}%.")
+            omega = tsr_optimum * v0 / self.rotor_radius
+            power_feather = self._power_output(v0, omega, pitch_feather)
+            power_stall = self._power_output(v0, omega, pitch_stall)
+            counter = 0
+            while power_feather > rated_power:
+                pitch_feather += pitch_step_size_feather
+                power_feather = self._power_output(v0, omega, pitch_feather)
+                counter += 1
+                if counter > loop_breaker:
+                    raise ValueError(f"Could not pitch to rated power with {loop_breaker*pitch_step_size}° change "
+                                     f"(feathering). The number of pitch increments (loop_breaker) might have been "
+                                     f"too low.")
+            if counter > 30:
+                pitch_step_size_feather *= 2
+            elif counter < 10:
+                pitch_step_size_feather /= 1.3
+            counter = 0
+            while power_stall > rated_power:
+                pitch_stall -= pitch_step_size_stall
+                power_stall = self._power_output(v0, omega, pitch_stall)
+                counter += 1
+                if counter > loop_breaker:
+                    raise ValueError(f"Could not pitch to rated power with {loop_breaker*pitch_step_size}° change "
+                                     f"(feathering). The number of pitch increments (loop_breaker) might have been "
+                                     f"too low.")
+            if counter > 30:
+                pitch_step_size_stall *= 2
+            elif counter < 10:
+                pitch_step_size_stall /= 1.3
+            control_v0.append(v0)
+            pitch_curve_feather.append(pitch_feather)
+            power_curve_feather.append(power_feather)
+            pitch_curve_stall.append(pitch_stall)
+            power_curve_stall.append(power_stall)
+        resolution = np.rad2deg(pitch_step_size)
+        if int(resolution) == resolution:
+            resolution = int(resolution)
+        self.bem_data.save(resolution=resolution,
+                           ramp_v0=ramp_v0, ramp_power=ramp_power, ramp_pitch=ramp_pitch,
+                           control_v0=control_v0,
+                           pitch_curve_feather=pitch_curve_feather, power_curve_feather=power_curve_feather,
+                           pitch_curve_stall=pitch_curve_stall, power_curve_stall=power_curve_stall)
 
     def _power_output(self, v0, omega, pitch) -> float:
         radii, _, F_t = self.solve(v0, omega, pitch)
@@ -198,6 +228,7 @@ class BEM:
                 return 1/((4*tip_loss_correction*np.sin(phi)**2)/(local_solidity*c_normal)+1)-aif
             else:
                 return local_solidity*((1-aif)/np.sin(phi))**2*c_normal-4*aif*tip_loss_correction*(1-aif/4*(5-3*aif))
+        # print(phi, residue(bracket[0]), residue(bracket[1]))
         return root(residue, *bracket)
         # return newton(residue, 0)
 
