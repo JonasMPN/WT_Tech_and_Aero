@@ -48,16 +48,6 @@ class BemData:
     def __init__(self, data_dir: str):
         self.dir_data = data_dir
 
-    def save(self,
-             resolution: int,
-             tip_speed_ratios: np.ndarray,
-             pitch_angles: np.ndarray,
-             c_Ps: np.ndarray) -> None:
-        np.save(f"data/tsr_{resolution}.npy", tip_speed_ratios)
-        np.save(f"data/pitch_{resolution}.npy", pitch_angles)
-        np.save(f"data/cps_{resolution}.npy", c_Ps)
-        return None
-
     def contourf(self,
                  resolution: int,
                  contourf_kwargs: dict=None,
@@ -97,21 +87,60 @@ class BemData:
         plt.close(helper.handle_figure(fig, self.dir_data+f"/contour_{resolution}{add_to_fig_name}.png", **figure_kwargs))
         return None
 
+    def pitch_curve(self,
+                    pitch_step_size: float,
+                    axes_kwargs: dict=None,
+                    figure_kwargs: dict=None,
+                    add_to_fig_name: str="") -> None:
+        """
+
+        :param pitch_step_size: degree
+        :param axes_kwargs:
+        :param figure_kwargs:
+        :param add_to_fig_name:
+        :return:
+        """
+        axes_kwargs = {} if axes_kwargs is None else axes_kwargs
+        figure_kwargs = {} if figure_kwargs is None else figure_kwargs
+
+        ramp_v0 = np.load(self.dir_data+f"/ramp_v0_{pitch_step_size}.npy")
+        ramp_power = np.load(self.dir_data+f"/ramp_power_{pitch_step_size}.npy")
+        ramp_pitch = np.rad2deg(np.load(self.dir_data+f"/ramp_pitch_{pitch_step_size}.npy"))
+
+        control_v0 = np.load(self.dir_data+f"/control_v0_{pitch_step_size}.npy")
+        pitch_curve_feather = np.rad2deg(np.load(self.dir_data+f"/pitch_curve_feather_{pitch_step_size}.npy"))
+        power_curve_feather = np.load(self.dir_data+f"/power_curve_feather_{pitch_step_size}.npy")
+        pitch_curve_stall = np.rad2deg(np.load(self.dir_data+f"/pitch_curve_stall_{pitch_step_size}.npy"))
+        power_curve_stall = np.load(self.dir_data+f"/power_curve_stall_{pitch_step_size}.npy")
+
+        fig, ax = plt.subplots()
+        ax.plot(ramp_v0, ramp_power, label="ramp up")
+        ax.plot(control_v0, power_curve_stall, label="stall")
+        ax.plot(control_v0, power_curve_feather, label="feather")
+        helper.handle_axis(ax, title="Power curve", legend=True, x_label=r"$v_0$ in $\frac{m}{s}$", y_label="power in W",
+                           font_size=20)
+        plt.close(helper.handle_figure(fig, self.dir_data+f"/power_{pitch_step_size}.png"))
+
+        fig, ax = plt.subplots()
+        ax.plot(ramp_v0, ramp_pitch, label="ramp up")
+        ax.plot(control_v0, pitch_curve_stall, label="stall")
+        ax.plot(control_v0, pitch_curve_feather, label="feather")
+        helper.handle_axis(ax, title="Pitch curve", legend=True, x_label=r"$v_0$ in $\frac{m}{s}$", y_label="pitch in °",
+                           font_size=20)
+        plt.close(helper.handle_figure(fig, self.dir_data+f"/pitch_{pitch_step_size}.png"))
+        return None
+
     def optimum_from_resolution(self, resolution: int) -> tuple[float, float]:
-        tsr = np.load(self.dir_data+f"/tsr_{resolution}.npy")
-        pitch = np.load(self.dir_data+f"/pitch_{resolution}.npy")
-        cps = np.load(self.dir_data+f"/cps_{resolution}.npy")
+        tsr = np.load(self.dir_data+f"/tip_speed_ratios_{resolution}.npy")
+        pitch = np.load(self.dir_data+f"/pitch_angles_{resolution}.npy")
+        cps = np.load(self.dir_data+f"/c_Ps_{resolution}.npy")
         id_max = np.unravel_index(cps.argmax(), (resolution, resolution))
         return tsr[id_max], pitch[id_max]
 
-
-
-
-
-
-
-
-
-
-
+    def save(self, **kwargs: object) -> None:
+        resolution = kwargs["resolution"]
+        kwargs.pop("resolution")
+        for parameter, values in kwargs.items():
+            np.save(self.dir_data+f"/{parameter}_{resolution}.npy", values)
+        return None
 
