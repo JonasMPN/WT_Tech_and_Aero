@@ -189,7 +189,7 @@ class AshesData:
     def __init__(self, data_dir: str):
         self.dir_data = data_dir
 
-    def ascii_to_dat(self, file: str, file_extension: str="dat") -> None:
+    def ascii_to_dat(self, file: str, as_type: str="dat") -> None:
         columns = list()
         be_positions = list()
         with open(self.dir_data+f"/{file}") as data_file:
@@ -219,5 +219,5 @@ class AshesData:
                     values = list(ast.literal_eval(time_data[:time_data.find("\t")-1].replace(" ", ",")))
                     data[col] += values
             df = pd.DataFrame(data)
-            file_save = file[:file.find('.')]+f".{file_extension}"
+            file_save = file[:file.find('.')]+f".{as_type}"
             df.to_csv(self.dir_data+f"/{file_save}", index=False)
