@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import scipy.interpolate as interpolate
 from helper_functions import Helper
+import ast
 helper = Helper()
 
 
@@ -78,9 +79,9 @@ class BemData:
         axes_kwargs = {} if axes_kwargs is None else axes_kwargs
         figure_kwargs = {} if figure_kwargs is None else figure_kwargs
 
-        tsr = np.load(self.dir_data+f"/tsr_{resolution}/.n[y")
-        pitch = np.load(self.dir_data+f"/pitch_{resolution}/.n[y")
-        cps = np.load(self.dir_data+f"/cps_{resolution}/.n[y")
+        tsr = np.load(self.dir_data+f"/tsr_{resolution}.npy")
+        pitch = np.load(self.dir_data+f"/pitch_{resolution}.npy")
+        cps = np.load(self.dir_data+f"/cps_{resolution}.npy")
         fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
         ax.plot_surface(tsr, pitch, cps, **surface_kwargs)
         helper.handle_axis(ax, **axes_kwargs)
@@ -153,12 +154,12 @@ class BemData:
         plt.close(helper.handle_figure(fig, self.dir_data+f"/cT_{pitch_step_size}.png"))
         return None
 
-    def optimum_from_resolution(self, resolution: int) -> tuple[float, float]:
+    def optimum_from_resolution(self, resolution: int) -> tuple[float, float, float]:
         tsr = np.load(self.dir_data+f"/tip_speed_ratios_{resolution}.npy")
         pitch = np.load(self.dir_data+f"/pitch_angles_{resolution}.npy")
         cps = np.load(self.dir_data+f"/c_Ps_{resolution}.npy")
         id_max = np.unravel_index(cps.argmax(), (resolution, resolution))
-        return tsr[id_max], pitch[id_max]
+        return np.max(cps), tsr[id_max], pitch[id_max]
 
     def save_dataframe(self, add_to_filename:str="", **kwargs):
         """
@@ -183,3 +184,40 @@ class BemData:
             np.save(self.dir_data+f"/{parameter}_{resolution}.npy", values)
         return None
 
+
+class AshesData:
+    def __init__(self, data_dir: str):
+        self.dir_data = data_dir
+
+    def ascii_to_dat(self, file: str, file_extension: str="dat") -> None:
+        columns = list()
+        be_positions = list()
+        with open(self.dir_data+f"/{file}") as data_file:
+            content = data_file.readlines()
+            columns_str = content[11]
+            content_cleaned = False
+            while not content_cleaned:
+                columns.append(columns_str[:columns_str.find("[") - 1])
+                columns_str = columns_str[columns_str.find("\t") + 1:]
+                if "\t" not in columns_str:
+                    content_cleaned = True
+            position_str = content[20]
+            got_all = False
+            while not got_all:
+                be_positions.append(float(position_str[:position_str.find(" ")]))
+                position_str = position_str[position_str.find(" ") + 1:]
+                if " " not in position_str:
+                    got_all = True
+            n_blade_elements = len(be_positions)
+            data = {column: list() for column in ["radius"]+columns}
+            for time_data in content[22:]:
+                time = float(time_data[:time_data.find("\t")])
+                time_data = time_data[time_data.find("\t")+1:]
+                data["Time"] += [time for _ in range(n_blade_elements)]
+                data["radius"] += be_positions
+                for col in columns[1:]:
+                    values = list(ast.literal_eval(time_data[:time_data.find("\t")-1].replace(" ", ",")))
+                    data[col] += values
+            df = pd.DataFrame(data)
+            file_save = file[:file.find('.')]+f".{file_extension}"
+            df.to_csv(self.dir_data+f"/{file_save}", index=False)
