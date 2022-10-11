@@ -70,7 +70,8 @@ class BEM:
     def pitch_curve(self,
                     rated_power: float,
                     wind_speeds: tuple,
-                    pitch_step_size: float,
+                    init_pitch_step_size: float,
+                    n_steps_goal: int=20,
                     optimums_from_res: int=None,
                     tsr_optimum: float=None,
                     pitch_optimum: float=None,
@@ -87,15 +88,15 @@ class BEM:
         :param loop_breaker:
         :return:
         """
-        pitch_step_size, pitch_optimum = np.deg2rad(pitch_step_size), float(pitch_optimum)
-        init_pitch_step_size = pitch_step_size
         if optimums_from_res:
-            tsr_optimum, pitch_optimum = self.bem_data.optimum_from_resolution(optimums_from_res)
+            _, tsr_optimum, pitch_optimum = self.bem_data.optimum_from_resolution(optimums_from_res)
+        print(tsr_optimum, pitch_optimum)
+        init_pitch_step_size, pitch_optimum = np.deg2rad(init_pitch_step_size), float(pitch_optimum)
         power, pitch, pitch_steps, pitch_step_size, plot_pss, v0s = dict(), dict(), dict(), dict(), dict(), dict()
-        c_P, c_T = dict(), dict()
+        c_P, c_T, thrust = dict(), dict(), dict()
         for key in ["ramp", "feather", "stall"]:
             power[key], pitch[key], pitch_steps[key], pitch_step_size[key] = list(), list(), list(), list()
-            v0s[key], plot_pss[key], c_P[key], c_T[key] = list(), list(), list(), list()
+            v0s[key], plot_pss[key], c_P[key], c_T[key], thrust[key] = list(), list(), list(), list(), list()
         pitch["feather"], pitch["stall"] = [pitch_optimum], [pitch_optimum]
         pitch_step_size["feather"], pitch_step_size["stall"] = [copy(init_pitch_step_size)], [copy(init_pitch_step_size)]
         omega, v_rated = 0, 0
@@ -103,7 +104,7 @@ class BEM:
             power_present = .5*self.air_density*v0**3*np.pi*self.rotor_radius**2
             thrust_present = .5*self.air_density*v0**2*np.pi*self.rotor_radius**2
             omega = tsr_optimum * v0 / self.rotor_radius
-            power_now, thrust = self._thrust_and_power(v0, omega, pitch_optimum)
+            power_now, thrust_now = self._thrust_and_power(v0, omega, pitch_optimum)
             v_rated = v0
             if power_now > rated_power:
                 break
@@ -111,7 +112,8 @@ class BEM:
             pitch["ramp"].append(pitch_optimum)
             v0s["ramp"].append(v0)
             c_P["ramp"].append(power_now/power_present)
-            c_T["ramp"].append(thrust/thrust_present)
+            c_T["ramp"].append(thrust_now/thrust_present)
+            thrust["ramp"].append(thrust_now)
             print(f"Finished {np.round(i / wind_speeds[2] * 100, 5)}%.")
         factor = {"feather":
                       {"decrease": 1,
@@ -127,23 +129,24 @@ class BEM:
             for control_type in ["feather", "stall"]:
                 pitch[control_type].append(pitch[control_type][-1])
                 v0s[control_type].append(v0)
-                power_now, thrust = self._thrust_and_power(v0, omega, pitch[control_type][-1])
+                power_now, thrust_now = self._thrust_and_power(v0, omega, pitch[control_type][-1])
                 to_do = "decrease" if power_now > rated_power else "increase"
                 pitch_change = factor[control_type][to_do]*pitch_step_size[control_type][-1]
                 counter = 0
                 while compare[to_do](power_now, rated_power) == power_now:
                     pitch[control_type][-1] += pitch_change
-                    power_now, thrust = self._thrust_and_power(v0, omega, pitch[control_type][-1])
+                    power_now, thrust_now = self._thrust_and_power(v0, omega, pitch[control_type][-1])
                     counter += 1
                     if counter > loop_breaker:
                         self._raise_loop_break_error(control_type, counter, pitch_step_size[control_type][-1])
                 pitch_steps[control_type].append(counter)
+                thrust[control_type].append(thrust_now)
                 power[control_type].append(power_now)
                 c_P[control_type].append(power_now/power_present)
-                c_T[control_type].append(thrust/thrust_present)
-                if counter > 15:
+                c_T[control_type].append(thrust_now/thrust_present)
+                if counter > n_steps_goal+5:
                     pitch_step_size[control_type].append(pitch_step_size[control_type][-1]*1.3)
-                elif counter < 10:
+                elif counter < n_steps_goal:
                     pitch_step_size[control_type].append(pitch_step_size[control_type][-1]/1.3)
                 else:
                     pitch_step_size[control_type].append(pitch_step_size[control_type][-1])
@@ -155,19 +158,20 @@ class BEM:
         pitch["feather"].pop(0), pitch["stall"].pop(0)
         self.bem_data.save_dataframe(add_to_filename="_ramp", resolution=resolution,
                                      v0=v0s["ramp"], power=power["ramp"], pitch=pitch["ramp"], cT=c_T["ramp"],
-                                     cP=c_P["ramp"])
+                                     cP=c_P["ramp"], thrust=thrust["ramp"])
         self.bem_data.save_dataframe(add_to_filename="_control", resolution=resolution,
                                      v0=v0s["stall"],
                                      pitch_feather=pitch["feather"], power_feather=power["feather"],
                                      pitch_stall=pitch["stall"], power_stall=power["stall"],
+                                     thrust_stall=thrust["stall"], thrust_feather=thrust["feather"],
                                      feather_pitch_steps=pitch_steps["feather"], stall_pitch_steps=pitch_steps["stall"],
                                      feather_step_size=plot_pss["feather"], stall_step_size=plot_pss["stall"],
                                      feather_cP=c_P["feather"], stall_cP=c_P["stall"],
                                      feather_cT=c_T["feather"], stall_cT=c_T["stall"])
 
     def _thrust_and_power(self, v0, omega, pitch) -> tuple[float, float]:
-        radii, _, F_t = self.solve(v0, omega, pitch)
-        thrust = self.n_blades * np.trapz(F_t, radii)
+        radii, F_n, F_t = self.solve(v0, omega, pitch)
+        thrust = self.n_blades * np.trapz(F_n, radii)
         torque = self.n_blades * np.trapz(F_t*radii, radii)
         return torque*omega, thrust
 
