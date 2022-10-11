@@ -67,35 +67,47 @@ class Helper():
         return figure
 
     @staticmethod
-    def handle_axis(axis: matplotlib.pyplot.axis,
+    def handle_axis(axis: matplotlib.pyplot.axis or list[matplotlib.pyplot.axis],
                     title: str=None,
                     grid: bool=False,
                     legend: bool=False,
+                    legend_loc: int=0,
                     legend_columns: int=1,
                     x_label: str=False,
-                    y_label: str=False,
+                    y_label: str or list[str]=False ,
                     z_label: str=False,
                     x_scale: str="linear",
                     y_scale: str="linear",
                     font_size: int=False) -> matplotlib.pyplot.axis:
-        axis.set_title(title)
-        if font_size:
-            axis.title.set_fontsize(font_size)
-            axis.xaxis.label.set_fontsize(font_size)
-            axis.yaxis.label.set_fontsize(font_size)
-            if axis.name == "3d":
-                axis.zaxis.label.set_fontsize(font_size)
-            axis.tick_params(axis='both', labelsize=font_size)
-        axis.grid(grid)
+        axis = axis if type(axis) == list else [axis]
+        y_label = y_label if type(y_label) == list else [y_label]
+        for i, ax in enumerate(axis):
+            ax.set_title(title)
+            if font_size:
+                ax.title.set_fontsize(font_size)
+                ax.xaxis.label.set_fontsize(font_size)
+                ax.yaxis.label.set_fontsize(font_size)
+                if ax.name == "3d":
+                    ax.zaxis.label.set_fontsize(font_size)
+                ax.tick_params(axis='both', labelsize=font_size)
+            axis[0].grid(grid)
+            if x_label:
+                ax.set_xlabel(x_label, labelpad=20)
+            if y_label:
+                ax.set_ylabel(y_label[i], labelpad=20)
+            if z_label:
+                ax.set_zlabel(z_label, labelpad=40)
+            ax.set_xscale(x_scale)
+            ax.set_yscale(y_scale)
         if legend:
-            axis.legend(ncol=legend_columns, prop={"size": font_size}) if font_size else axis.legend(ncol=legend_columns)
-        if x_label:
-            axis.set_xlabel(x_label, labelpad=20)
-        if y_label:
-            axis.set_ylabel(y_label, labelpad=20)
-        if z_label:
-            axis.set_zlabel(z_label, labelpad=40)
-        axis.set_xscale(x_scale)
-        axis.set_yscale(y_scale)
+            lines, labels = list(), list()
+            for ax in axis:
+                lines += ax.get_lines()
+            labels = [line.get_label() for line in lines if line.get_label()[0] != "_"]
+            lines = [line for line in lines if line.get_label()[0] != "_"]
+            if font_size:
+                axis[0].legend(lines, labels, ncol=legend_columns, prop={"size": font_size}, loc=legend_loc)
+            else:
+                axis[0].legend(lines, labels, ncol=legend_columns, loc=legend_loc)
         return axis
 
