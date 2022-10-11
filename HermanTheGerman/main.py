@@ -8,20 +8,20 @@ bem_data = BemData("data")
 
 do = {
     "calculate_cp_max": False,
-    "calculate_pitch_curve": True,
+    "calculate_pitch_curve": False,
     "contourf": False,
     "surface": False,
     "plot_pitch_curve": True
 }
-res = 50
-pitch_step_size = 0.01
+res = 500
+init_pitch_step_size = 0.005
 
 bem = BEM("airfoil_data",
           "data",
           "blade_data_new.txt",
           "combined_data_new.txt",
           {"c_l": ["rel_thickness", "alpha"], "c_d": ["rel_thickness", "alpha"]})
-v_min, v_max, rpm_min, rpm_max = 4, 25, 6, 9.6
+v_min, v_max, rpm_min, rpm_max = 5, 25, 6, 9.6
 omega_min, omega_max = rpm_min*np.pi/30, rpm_max*np.pi/30
 rotor_radius = 89.17
 bem.set_constants(rotor_radius=rotor_radius,
@@ -33,8 +33,8 @@ if do["calculate_cp_max"]:
                  resolution=res)
 
 if do["calculate_pitch_curve"]:
-    bem.pitch_curve(rated_power=10.64e6, wind_speeds=(v_min,v_max,res),
-                    pitch_step_size=pitch_step_size, tsr_optimum=8, pitch_optimum=0)
+    bem.pitch_curve(rated_power=10.64e6, wind_speeds=(v_min,v_max,res), init_pitch_step_size=init_pitch_step_size,
+                    n_steps_goal=20, tsr_optimum=8, pitch_optimum=0)
 
 if do["contourf"]:
     contourf_kwargs = {
@@ -70,5 +70,6 @@ if do["surface"]:
                      figure_kwargs=figure_kwargs)
 
 if do["plot_pitch_curve"]:
-    bem_data.pitch_curve(pitch_step_size=pitch_step_size)
+    bem_data.pitch_curve(init_pitch_step_size=init_pitch_step_size,
+                         axes_kwargs={"font_size": 30, "grid": True})
 
